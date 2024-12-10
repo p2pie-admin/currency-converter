@@ -26,7 +26,13 @@ server.get("/", async (req: any, reply) => {
     reply.send(location);
   } catch (error) {
     console.error(error);
-    reply.status(500).send("Error retrieving location information");
+    reply.status(500).send(
+      JSON.stringify({
+        text: "Error retrieving location information",
+        ip,
+        location,
+      })
+    );
   }
 });
 // Declare a route
