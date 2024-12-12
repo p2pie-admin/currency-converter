@@ -26,6 +26,7 @@ export const createArticles = () => {
       header: `${capitalizeFirstLetter(name)} ${code.toUpperCase()}`,
       subheader: `All you need to know about ${name}`,
       code: name,
+      section: "pm",
     };
 
     callStrapi(MUTATION, data);
