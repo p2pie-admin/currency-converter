@@ -12,7 +12,6 @@ import callStrapi from "./services/callStrapi";
 import { citiesQuery } from "./services/queries";
 import { ICity } from "./types/db";
 import { getLocation } from "./getLocation";
-import { createArticles } from "./createArticles";
 
 dotenv.config();
 
@@ -80,8 +79,6 @@ const start = async () => {
       ?.cities as ICity[];
     if (cities) db.push(".cities", cities);
     getLocation("");
-
-    //createArticles();
 
     setTimeout(updateFiatRates, 5_000);
     setTimeout(updateCryptoRates, 6_000);
