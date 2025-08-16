@@ -114,8 +114,8 @@ const start = async () => {
 
     setTimeout(updateFiatRates, 5_000);
     setTimeout(updateCryptoRates, 6_000);
-    setInterval(updateCryptoRates, 1_000 * 60 * 10); // ~ раз 10 мин
-    setInterval(updateFiatRates, 11_000_000); // >3h for 250 api calls per month
+    setInterval(updateCryptoRates, 1_000 * 60 * 30); // every 30min
+    setInterval(updateFiatRates, 1_000 * 60 * 60 * 12); // every 12h
   } catch (error) {
     server.log.error(error);
     process.exit(1);

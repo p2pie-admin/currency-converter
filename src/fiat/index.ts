@@ -15,6 +15,6 @@ export default async () => {
       db.save();
     }
   } catch (e) {
-    console.log("no fiat for today..");
+    console.log("no fiat for today..", e);
   }
 };

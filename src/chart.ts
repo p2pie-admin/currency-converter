@@ -15,22 +15,32 @@ export const createChart = async (
     return null;
   }
 
-  // If no data → return "∅" symbol image (transparent background)
+  // If no data at all → big semi-transparent X
   if (!data || data.length === 0) {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext("2d");
 
-    ctx.clearRect(0, 0, width, height); // transparent background
-    ctx.fillStyle = "gray";
-    ctx.font = "60px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("∅", width / 2, height / 2);
+    ctx.clearRect(0, 0, width, height);
+
+    ctx.strokeStyle = "rgba(128,128,128,0.25)"; // nearly transparent gray
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+
+    // draw X
+    ctx.beginPath();
+    ctx.moveTo(50, 30);
+    ctx.lineTo(width - 50, height - 30);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(width - 50, 30);
+    ctx.lineTo(50, height - 30);
+    ctx.stroke();
 
     return canvas.toBuffer("image/png");
   }
 
-  // Create gradient for chart
+  // Normal chart if data exists
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
   const gradient = ctx.createLinearGradient(0, 0, 0, height);
