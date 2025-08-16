@@ -6,22 +6,26 @@ const width = 400;
 const height = 200;
 const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height });
 
-export const createChart = async (data: number[]): Promise<Buffer> => {
-  // If no data, return a canvas with "No graph available"
+export const createChart = async (
+  data: number[] | null,
+  timeframe?: string
+): Promise<Buffer | null> => {
+  // Only allow 1h or 24h
+  if (timeframe !== "1h" && timeframe !== "24h") {
+    return null;
+  }
+
+  // If no data → return "∅" symbol image (transparent background)
   if (!data || data.length === 0) {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext("2d");
 
-    // Background
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, width, height);
-
-    // Text
+    ctx.clearRect(0, 0, width, height); // transparent background
     ctx.fillStyle = "gray";
-    ctx.font = "20px sans-serif";
+    ctx.font = "60px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("No graph available", width / 2, height / 2);
+    ctx.fillText("∅", width / 2, height / 2);
 
     return canvas.toBuffer("image/png");
   }

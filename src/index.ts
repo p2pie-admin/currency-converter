@@ -38,42 +38,65 @@ server.get("/", async (req: any, reply) => {
 // Declare a route
 server.get("/:dir/:timeframe?", async (req: any, reply) => {
   reply.header("Access-Control-Allow-Origin", "*");
-  const dirRequested = req?.params?.dir?.toUpperCase() as string;
+  const dirRequested = req?.params?.dir?.toUpperCase();
   const timeframe = req?.params?.timeframe;
 
-  const dayRates = db.getData(`.rates.${dirRequested}`) as number[];
-
-  // Return empty object if no rates
-  if (!dayRates || dayRates.length === 0) {
-    reply.send({});
-    return;
-  }
-
-  if (!timeframe) {
-    const [give, get] = dirRequested.split("_");
-    const currentRate = dayRates[dayRates.length - 1];
-    const giveToUSD = db.getData(`.rates.${give}_USD`)?.[0];
-    const getToUSD = db.getData(`.rates.${get}_USD`)?.[0];
-    const dayTrend = ((currentRate - dayRates[0]) / currentRate) * 100;
-    const hourTrend =
-      ((currentRate - dayRates[dayRates.length - 6]) / currentRate) * 100;
-    reply.send({ currentRate, giveToUSD, getToUSD, dayTrend, hourTrend });
-    return;
-  }
-
+  let dayRates: number[] | null = null;
   try {
-    const hourRates = dayRates.slice(-6);
-    const image =
-      timeframe === "hour"
-        ? await createChart(hourRates)
-        : await createChart(dayRates.filter((_, i) => i % 5 === 0));
+    dayRates = db.getData(`.rates.${dirRequested}`) as number[];
+  } catch {
+    dayRates = null;
+  }
+
+  // Chart mode
+  if (timeframe === "1h" || timeframe === "24h") {
+    const data =
+      timeframe === "1h"
+        ? dayRates?.slice(-6) ?? null
+        : dayRates?.filter((_, i) => i % 5 === 0) ?? null;
+
+    const image = await createChart(data, timeframe);
+
+    if (!image) {
+      reply.send(null);
+      return;
+    }
 
     reply.header("Content-Type", "image/png");
     reply.send(image);
-  } catch (error) {
-    console.error(error);
-    reply.status(500).send("Error generating chart");
+    return;
   }
+
+  // If timeframe not recognized → return null
+  if (timeframe) {
+    reply.send(null);
+    return;
+  }
+
+  // Default (no timeframe): return rates info
+  if (!dayRates || dayRates.length === 0) {
+    reply.send(null);
+    return;
+  }
+
+  const [give, get] = dirRequested.split("_");
+  const currentRate = dayRates[dayRates.length - 1];
+
+  let giveToUSD: number | null = null;
+  let getToUSD: number | null = null;
+
+  try {
+    giveToUSD = db.getData(`.rates.${give}_USD`)?.[0] ?? null;
+  } catch {}
+  try {
+    getToUSD = db.getData(`.rates.${get}_USD`)?.[0] ?? null;
+  } catch {}
+
+  const dayTrend = ((currentRate - dayRates[0]) / currentRate) * 100;
+  const hourTrend =
+    ((currentRate - dayRates[dayRates.length - 6]) / currentRate) * 100;
+
+  reply.send({ currentRate, giveToUSD, getToUSD, dayTrend, hourTrend });
 });
 
 const port = +process.env.CONVERTER_PORT!;
