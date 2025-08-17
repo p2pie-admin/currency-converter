@@ -44,7 +44,7 @@ export const createChart = async (
     beforeDraw: (chart: any) => {
       const ctx = chart.ctx;
       ctx.save();
-      ctx.fillStyle = "#1c1919"; // dev background
+      ctx.fillStyle = "rgba(28, 25, 25, 0)"; // dev background
       ctx.fillRect(0, 0, chart.width, chart.height);
       ctx.restore();
     },
