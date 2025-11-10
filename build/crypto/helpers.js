@@ -49,9 +49,16 @@ function getAnyFiveElements(obj) {
 const mergeRates = (oldRates, newRates, limit) => {
     const merged = {};
     for (const key in newRates) {
-        merged[key] = (oldRates === null || oldRates === void 0 ? void 0 : oldRates[key])
-            ? [...oldRates === null || oldRates === void 0 ? void 0 : oldRates[key].slice(-1 * limit), newRates[key]]
-            : [newRates[key]];
+        const oldRateList = (oldRates === null || oldRates === void 0 ? void 0 : oldRates[key]) || [];
+        const newRate = newRates[key];
+        // If the old list is already within the limit, just add the new rate
+        if (oldRateList.length < limit) {
+            merged[key] = [...oldRateList, newRate];
+        }
+        else {
+            // Slice only if needed to avoid unnecessary copying
+            merged[key] = [...oldRateList.slice(1 - limit), newRate];
+        }
     }
     return merged;
 };

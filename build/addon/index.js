@@ -37,8 +37,7 @@ const getAllPossibleCryptoRates = () => __awaiter(void 0, void 0, void 0, functi
             });
             if (data) {
                 console.log(Object.keys(data).length);
-                const prev = db_1.default.getData(".crypto_rates");
-                db_1.default.push(".crypto_rates", Object.assign(Object.assign({}, prev), data));
+                db_1.default.push(".crypto_rates", data);
                 db_1.default.save();
             }
         }), index * 20000);

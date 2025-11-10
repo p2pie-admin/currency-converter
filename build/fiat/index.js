@@ -29,6 +29,6 @@ exports.default = () => __awaiter(void 0, void 0, void 0, function* () {
         }
     }
     catch (e) {
-        console.log("no fiat for today..");
+        console.log("no fiat for today..", e);
     }
 });

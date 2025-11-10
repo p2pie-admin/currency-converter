@@ -12,65 +12,107 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createChart = void 0;
 const chartjs_node_canvas_1 = require("chartjs-node-canvas");
 const canvas_1 = require("canvas");
-const width = 400; // px
-const height = 200; // px
+const width = 400;
+const height = 200;
 const chartJSNodeCanvas = new chartjs_node_canvas_1.ChartJSNodeCanvas({ width, height });
-const createChart = (data, min, max) => __awaiter(void 0, void 0, void 0, function* () {
-    // Create a canvas to generate the gradient
+const createChart = (data, timeframe) => __awaiter(void 0, void 0, void 0, function* () {
+    if (timeframe !== "1h" && timeframe !== "24h") {
+        return null;
+    }
+    if (!data || data.length === 0) {
+        const canvas = (0, canvas_1.createCanvas)(width, height);
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, width, height);
+        ctx.strokeStyle = "rgba(128,128,128,0.25)";
+        ctx.lineWidth = 3;
+        ctx.lineCap = "round";
+        const marginX = width * 0.3;
+        const marginY = height * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(marginX, marginY);
+        ctx.lineTo(width - marginX, height - marginY);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(width - marginX, marginY);
+        ctx.lineTo(marginX, height - marginY);
+        ctx.stroke();
+        return canvas.toBuffer("image/png");
+    }
+    const backgroundPlugin = {
+        id: "customBackground",
+        beforeDraw: (chart) => {
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.fillStyle = "rgba(28, 25, 25, 0)"; // dev background
+            ctx.fillRect(0, 0, chart.width, chart.height);
+            ctx.restore();
+        },
+    };
+    const glowingPointPlugin = {
+        id: "glowingPointPlugin",
+        afterDraw: (chart) => {
+            if (!chart.scales || !data || data.length === 0)
+                return;
+            const ctx = chart.ctx;
+            const yScale = chart.scales.y;
+            const xScale = chart.scales.x;
+            const lastValue = data[data.length - 1];
+            const x = xScale.getPixelForValue(data.length - 1);
+            const y = yScale.getPixelForValue(lastValue);
+            ctx.save();
+            // glowing blur
+            ctx.shadowColor = "rgba(250,182,152,0.9)";
+            ctx.shadowBlur = 15;
+            ctx.fillStyle = "rgba(250,182,152,0.8)";
+            ctx.beginPath();
+            ctx.arc(x, y, 6, 0, 2 * Math.PI); // slightly larger for glow spread
+            ctx.fill();
+            // sharp dot on top
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "rgba(250,182,152,1)";
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.restore();
+        },
+    };
     const canvas = (0, canvas_1.createCanvas)(width, height);
     const ctx = canvas.getContext("2d");
-    // Create gradient
-    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, "rgba(250, 182, 152, 0.2)");
-    gradient.addColorStop(1, "rgba(250, 182, 152, 0)");
+    const gradientFill = ctx.createLinearGradient(0, 0, 0, height);
+    gradientFill.addColorStop(0, "rgba(250, 182, 152, 0.2)");
+    gradientFill.addColorStop(1, "rgba(250, 182, 152, 0)");
     const configuration = {
         type: "line",
         data: {
-            labels: data.reverse(),
+            labels: data.map((_, i) => i),
             datasets: [
                 {
-                    backgroundColor: gradient, // Use the gradient here
+                    backgroundColor: gradientFill,
                     borderColor: "rgba(250, 182, 152, 1)",
                     borderWidth: 1,
                     data,
-                    tension: 0.4, // Smoothing option
-                    fill: true, // Enable filling the area under the line
-                    pointRadius: 0, // Hide the points
-                    pointHoverRadius: 0, // Hide the points on hover
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 0, // disable default points
+                    pointHoverRadius: 0,
                 },
             ],
         },
         options: {
             responsive: false,
             scales: {
-                x: {
-                    display: false, // Remove x-axis
-                    grid: {
-                        display: false, // Remove x-axis grid lines
-                    },
-                },
+                x: { display: false, grid: { display: false } },
                 y: {
-                    display: false, // Remove y-axis
-                    min,
-                    max,
-                    grid: {
-                        display: false, // Remove y-axis grid lines
-                    },
+                    display: false,
+                    min: Math.min(...data) * 0.99,
+                    max: Math.max(...data) * 1.01,
+                    grid: { display: false },
                 },
             },
-            elements: {
-                line: {
-                    tension: 0.4, // Smooth the lines
-                },
-            },
-            plugins: {
-                legend: {
-                    display: false, // Remove legend if not needed
-                },
-            },
+            plugins: { legend: { display: false } },
         },
+        plugins: [backgroundPlugin, glowingPointPlugin],
     };
-    const image = yield chartJSNodeCanvas.renderToBuffer(configuration);
-    return image;
+    return yield chartJSNodeCanvas.renderToBuffer(configuration);
 });
 exports.createChart = createChart;

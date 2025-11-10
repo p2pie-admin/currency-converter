@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CryptoForCoingeckoQuery = exports.ChangeAccuracyMutation = exports.AuthMutation = void 0;
+exports.citiesQuery = exports.CryptoForCoingeckoQuery = exports.ChangeAccuracyMutation = exports.AuthMutation = void 0;
 const graphql_request_1 = require("graphql-request");
 exports.AuthMutation = (0, graphql_request_1.gql) `
   mutation login {
@@ -70,6 +70,17 @@ exports.CryptoForCoingeckoQuery = (0, graphql_request_1.gql) `
               }
             }
           }
+        }
+      }
+    }
+  }
+`;
+exports.citiesQuery = (0, graphql_request_1.gql) `
+  {
+    parserSetting {
+      data {
+        attributes {
+          cities
         }
       }
     }

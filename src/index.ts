@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { FastifyRequest } from "fastify";
 import dotenv from "dotenv";
 import axios from "axios";
 import updateCryptoRates from "./crypto";
@@ -18,21 +18,59 @@ dotenv.config();
 const server = Fastify({
   logger: true,
 });
-server.get("/", async (req: any, reply) => {
+
+const normalizeIp = (ip?: string | null) => {
+  if (!ip) return null;
+  let normalized = ip.trim();
+
+  if (!normalized || normalized.toLowerCase() === "unknown") {
+    return null;
+  }
+
+  if (normalized.startsWith("::ffff:")) {
+    normalized = normalized.replace("::ffff:", "");
+  }
+
+  // Remove port from IPv4 addresses (e.g., 192.168.0.1:12345).
+  if (normalized.includes(":") && normalized.includes(".")) {
+    normalized = normalized.split(":")[0]!;
+  }
+
+  if (normalized === "127.0.0.1" || normalized === "::1") {
+    return null;
+  }
+
+  return normalized;
+};
+
+const getClientIp = (req: FastifyRequest): string | null => {
+  const forwarded = req.headers["x-forwarded-for"];
+  const forwardedValue = Array.isArray(forwarded)
+    ? forwarded.find(Boolean)
+    : forwarded;
+
+  const fromHeader = forwardedValue
+    ?.split(",")
+    .map((segment) => segment.trim())
+    .find(Boolean);
+
+  const rawIp = fromHeader || req.socket?.remoteAddress || req.ip;
+
+  return normalizeIp(rawIp);
+};
+
+server.get("/", async (req: FastifyRequest, reply) => {
   reply.header("Access-Control-Allow-Origin", "*");
-  const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
+  const ip = getClientIp(req);
   try {
     const location = await getLocation(ip);
     reply.send(location);
   } catch (error) {
-    console.error(error);
-    reply.status(500).send(
-      JSON.stringify({
-        text: "Error retrieving location information",
-        ip,
-        location,
-      })
-    );
+    req.log.error({ err: error, ip }, "IP lookup failed");
+    reply.status(502).send({
+      text: "Error retrieving location information",
+      ip,
+    });
   }
 });
 // Declare a route
@@ -105,13 +143,11 @@ console.log("port is: ", port);
 const start = async () => {
   try {
     await server.listen({ port, host: "0.0.0.0" });
-
     await auth();
     const cities = (await callStrapi(citiesQuery))?.parserSetting
       ?.cities as ICity[];
     if (cities) db.push(".cities", cities);
     getLocation("");
-
     setTimeout(updateFiatRates, 5_000);
     setTimeout(updateCryptoRates, 6_000);
     setInterval(updateCryptoRates, 1_000 * 60 * 30); // every 30min
