@@ -19,6 +19,17 @@ const server = Fastify({
   logger: true,
 });
 
+server.addHook("onRequest", async (req, reply) => {
+  reply.header("Access-Control-Allow-Origin", "*");
+  reply.header("Access-Control-Allow-Methods", "GET,OPTIONS");
+  reply.header("Access-Control-Allow-Headers", "Content-Type");
+  reply.header("Cross-Origin-Resource-Policy", "cross-origin");
+
+  if (req.method === "OPTIONS") {
+    reply.status(204).send();
+  }
+});
+
 const normalizeIp = (ip?: string | null) => {
   if (!ip) return null;
   let normalized = ip.trim();
@@ -59,12 +70,49 @@ const getClientIp = (req: FastifyRequest): string | null => {
   return normalizeIp(rawIp);
 };
 
+const getPairRateInfo = (
+  dirRequested: string,
+  existingDayRates?: number[] | null
+) => {
+  let dayRates = existingDayRates;
+  if (!dayRates) {
+    try {
+      dayRates = db.getData(`.rates.${dirRequested}`) as number[];
+    } catch {
+      dayRates = null;
+    }
+  }
+
+  if (!dayRates || dayRates.length === 0) {
+    return null;
+  }
+
+  const [give, get] = dirRequested.split("_");
+  const currentRate = dayRates[dayRates.length - 1];
+
+  let giveToUSD: number | null = null;
+  let getToUSD: number | null = null;
+
+  try {
+    giveToUSD = db.getData(`.rates.${give}_USD`)?.[0] ?? null;
+  } catch {}
+  try {
+    getToUSD = db.getData(`.rates.${get}_USD`)?.[0] ?? null;
+  } catch {}
+
+  const dayTrend = ((currentRate - dayRates[0]) / currentRate) * 100;
+  const hourTrend =
+    ((currentRate - dayRates[dayRates.length - 6]) / currentRate) * 100;
+
+  return { currentRate, giveToUSD, getToUSD, dayTrend, hourTrend };
+};
+
 server.get("/", async (req: FastifyRequest, reply) => {
-  reply.header("Access-Control-Allow-Origin", "*");
   const ip = getClientIp(req);
   try {
     const location = await getLocation(ip);
-    reply.send(location);
+    const btcRub = getPairRateInfo("BTC_RUB");
+    reply.send({ ...location, BTC_RUB: btcRub });
   } catch (error) {
     req.log.error({ err: error, ip }, "IP lookup failed");
     reply.status(502).send({
@@ -75,7 +123,6 @@ server.get("/", async (req: FastifyRequest, reply) => {
 });
 // Declare a route
 server.get("/:dir/:timeframe?", async (req: any, reply) => {
-  reply.header("Access-Control-Allow-Origin", "*");
   const dirRequested = req?.params?.dir?.toUpperCase();
   const timeframe = req?.params?.timeframe;
 
@@ -112,29 +159,8 @@ server.get("/:dir/:timeframe?", async (req: any, reply) => {
   }
 
   // Default (no timeframe): return rates info
-  if (!dayRates || dayRates.length === 0) {
-    reply.send(null);
-    return;
-  }
-
-  const [give, get] = dirRequested.split("_");
-  const currentRate = dayRates[dayRates.length - 1];
-
-  let giveToUSD: number | null = null;
-  let getToUSD: number | null = null;
-
-  try {
-    giveToUSD = db.getData(`.rates.${give}_USD`)?.[0] ?? null;
-  } catch {}
-  try {
-    getToUSD = db.getData(`.rates.${get}_USD`)?.[0] ?? null;
-  } catch {}
-
-  const dayTrend = ((currentRate - dayRates[0]) / currentRate) * 100;
-  const hourTrend =
-    ((currentRate - dayRates[dayRates.length - 6]) / currentRate) * 100;
-
-  reply.send({ currentRate, giveToUSD, getToUSD, dayTrend, hourTrend });
+  const pairRates = getPairRateInfo(dirRequested, dayRates);
+  reply.send(pairRates);
 });
 
 const port = +process.env.CONVERTER_PORT!;

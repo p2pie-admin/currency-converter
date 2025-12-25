@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Документация сервиса converter</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.5; margin: 2rem auto; max-width: 900px; color: #1f1f1f; }
+    code { background: #f4f4f4; padding: 0.15rem 0.35rem; border-radius: 4px; }
+    dl { display: grid; grid-template-columns: minmax(160px, 1fr) 3fr; gap: 0.5rem 1rem; }
+    dt { font-weight: 600; }
+    dd { margin: 0; }
+    h1, h2, h3 { color: #0f172a; }
+  </style>
+</head>
+<body>
+  <h1>Converter — краткая документация</h1>
+  <p>
+    Модуль <code>src/index.ts</code> поднимает Fastify‑сервер, который выдаёт курсы
+    обмена крипто/фиатных пар, рисует мини‑графики динамики и определяет город клиента
+    по IP. Данные собираются из CoinGecko и ExchangeRatesAPI, нормализуются и сохраняются
+    в локальной базе <code>node-json-db</code> вместе со списком городов, полученным из Strapi.
+  </p>
+
+  <h2>HTTP API</h2>
+  <ul>
+    <li>
+      <code>GET /</code> — извлекает IP клиента через <code>getClientIp</code>, ищет его местоположение
+      функцией <code>getLocation</code> и возвращает найденный город, координаты и сам IP.
+    </li>
+    <li>
+      <code>GET /:dir</code> — отдаёт последний курс направления вроде <code>BTC_USD</code>, дневной и часовой тренды,
+      а также вспомогательные курсы валют к USD. Источник — массив <code>.rates[dir]</code> в базе.
+    </li>
+    <li>
+      <code>GET /:dir/1h</code> и <code>GET /:dir/24h</code> — подготавливают усечённый набор данных за 6 либо 24 точки,
+      передают его в <code>createChart</code> и возвращают PNG‑изображение свечи/спарклайна.
+    </li>
+  </ul>
+
+  <h2>Ключевые функции и процессы</h2>
+  <dl>
+    <dt>normalizeIp(ip)</dt>
+    <dd>Удаляет хвосты вида <code>::ffff:</code>, порты и локальные адреса. Используется в <code>getClientIp</code>.</dd>
+
+    <dt>getClientIp(req)</dt>
+    <dd>Извлекает IP из заголовка <code>X-Forwarded-For</code> или сокета Fastify, перед тем как вызвать <code>getLocation</code>.</dd>
+
+    <dt>createChart(data, timeframe)</dt>
+    <dd>Строит линию тренда через <code>chartjs-node-canvas</code>, добавляет градиент и светящийся маркер последней точки.</dd>
+
+    <dt>updateFiatRates()</dt>
+    <dd>
+      Берёт список кодов <code>.fiat</code> из базы, запрашивает курс к евро в <code>EXCHANGERATESAPI</code> и сохраняет
+      словарь <code>.fiat_to_euro</code>. При недоступности API используется хардкоженный резерв <code>reserved.ts</code>.
+    </dd>
+
+    <dt>updateCryptoRates()</dt>
+    <dd>
+      Подкачивает курсы выбранных монет к EUR через CoinGecko, конвертирует их в связки crypto↔fiat и
+      fiat↔fiat функцией <code>matchRates</code>, округляет <code>roundAmount</code> и обновляет историю <code>.rates</code>
+      при помощи <code>mergeRates</code> (хранится не более 6×24 = 144 точек, фактическая глубина зависит от частоты обновлений).
+    </dd>
+
+    <dt>roundAmount(amount, rude)</dt>
+    <dd>Нормализует число до минимально значащего порядка для стабильного отображения курсов.</dd>
+
+    <dt>matchRates(aToEuro, bToEuro)</dt>
+    <dd>Комбинаторно строит словарь направлений вида <code>BTC_USD</code> → курс на основании значений к евро.</dd>
+
+    <dt>mergeRates(oldRates, newRates, limit)</dt>
+    <dd>Добавляет новое значение к истории направления и обрезает хвост сверх заданного лимита.</dd>
+
+    <dt>getLocation(ip)</dt>
+    <dd>
+      Запрашивает <code>ipinfo.io</code>, парсит город и координаты, ищет почти совпадающее название в <code>.cities</code>
+      (через <code>isAlmostMatching</code>) либо ближайший город по расстоянию (алгоритм хаверсина).
+    </dd>
+
+    <dt>auth()</dt>
+    <dd>Получает JWT Strapi по <code>AuthMutation</code>, сохраняет его в <code>.jwt</code> и повторяет запросы при ошибке.</dd>
+
+    <dt>callStrapi(query, vars)</dt>
+    <dd>Упаковывает GraphQL‑клиент с актуальным JWT, исполняет запрос и прогоняет ответ через <code>normalizer</code>.</dd>
+
+    <dt>normalizer(data)</dt>
+    <dd>Распаковывает strapi‑структуру <code>data → attributes</code> в плоские объекты и массивы.</dd>
+  </dl>
+
+  <h2>Фоновая инициализация</h2>
+  <p>
+    После запуска сервер слушает порт <code>CONVERTER_PORT</code>, авторизуется в Strapi, скачивает список городов,
+    прогревает сервис геолокации и планирует таймеры: через 5 cекунд обновляет фиатные курсы, через 6 секунд —
+    криптовалютные, далее повторяет операции каждые 30 минут и 12 часов соответственно. Все данные кешируются
+    в <code>node-json-db</code> (<code>src/db</code>) поверх структуры из <code>initialDB.ts</code>.
+  </p>
+</body>
+</html>
