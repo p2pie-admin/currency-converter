@@ -7,3 +7,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: darkshrine/converter:latest
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./db.json:/usr/src/app/db.json
