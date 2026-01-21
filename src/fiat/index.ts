@@ -4,7 +4,7 @@ import { reserved } from "./reserved";
 
 export default async () => {
   const symbols = db.getData(".fiat");
-  const url = `${process.env.EXCHANGERATESAPI_URL1}&symbols=${symbols}`;
+  const url = `${process.env.EXCHANGERATESAPI_URL}&symbols=${symbols}`;
 
   let fiatToEuro: { [key: string]: number } = reserved;
 
