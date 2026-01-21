@@ -14,6 +14,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const fastify_1 = __importDefault(require("fastify"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const path_1 = __importDefault(require("path"));
 const crypto_1 = __importDefault(require("./crypto"));
 const fiat_1 = __importDefault(require("./fiat"));
 const db_1 = __importDefault(require("./db"));
@@ -63,6 +64,11 @@ const getClientIp = (req) => {
     const fromHeader = forwardedValue === null || forwardedValue === void 0 ? void 0 : forwardedValue.split(",").map((segment) => segment.trim()).find(Boolean);
     const rawIp = fromHeader || ((_a = req.socket) === null || _a === void 0 ? void 0 : _a.remoteAddress) || req.ip;
     return normalizeIp(rawIp);
+};
+const formatLogAt = (value) => {
+    if (!value || !Number.isFinite(value))
+        return undefined;
+    return new Date(value).toISOString().split("T")[0];
 };
 const getPairRateInfo = (dirRequested, existingDayRates) => {
     var _a, _b, _c, _d, _e, _f;
@@ -120,7 +126,7 @@ const getPairRateInfo = (dirRequested, existingDayRates) => {
         issues.push({
             source: "rates",
             reason: "stale_rate",
-            at: lastRateTimestamp,
+            at: formatLogAt(lastRateTimestamp),
         });
     }
     const meta = db_1.default.exists(".meta") ? db_1.default.getData(".meta") : {};
@@ -132,21 +138,21 @@ const getPairRateInfo = (dirRequested, existingDayRates) => {
         issues.push({
             source: "exchangeratesapi",
             reason: fiatMeta.lastError.message || "fiat_rates_error",
-            at: fiatMeta.lastError.at,
+            at: formatLogAt(fiatMeta.lastError.at),
         });
     }
     else if (fiatMeta === null || fiatMeta === void 0 ? void 0 : fiatMeta.lastWarning) {
         issues.push({
             source: "exchangeratesapi",
             reason: fiatMeta.lastWarning.message || "fiat_rates_warning",
-            at: fiatMeta.lastWarning.at,
+            at: formatLogAt(fiatMeta.lastWarning.at),
         });
     }
     else if ((fiatMeta === null || fiatMeta === void 0 ? void 0 : fiatMeta.lastSuccessAt) && now - fiatMeta.lastSuccessAt > 36 * 60 * 60 * 1000) {
         issues.push({
             source: "exchangeratesapi",
             reason: "fiat_rates_stale",
-            at: fiatMeta.lastSuccessAt,
+            at: formatLogAt(fiatMeta.lastSuccessAt),
         });
     }
     if ((cryptoMeta === null || cryptoMeta === void 0 ? void 0 : cryptoMeta.lastError) &&
@@ -155,28 +161,45 @@ const getPairRateInfo = (dirRequested, existingDayRates) => {
         issues.push({
             source: "coingecko",
             reason: cryptoMeta.lastError.message || "crypto_rates_error",
-            at: cryptoMeta.lastError.at,
+            at: formatLogAt(cryptoMeta.lastError.at),
         });
     }
     else if (cryptoMeta === null || cryptoMeta === void 0 ? void 0 : cryptoMeta.lastWarning) {
         issues.push({
             source: "coingecko",
             reason: cryptoMeta.lastWarning.message || "crypto_rates_warning",
-            at: cryptoMeta.lastWarning.at,
+            at: formatLogAt(cryptoMeta.lastWarning.at),
         });
     }
     else if ((cryptoMeta === null || cryptoMeta === void 0 ? void 0 : cryptoMeta.lastSuccessAt) && now - cryptoMeta.lastSuccessAt > 2 * 60 * 60 * 1000) {
         issues.push({
             source: "coingecko",
             reason: "crypto_rates_stale",
-            at: cryptoMeta.lastSuccessAt,
+            at: formatLogAt(cryptoMeta.lastSuccessAt),
+        });
+    }
+    const logs = [
+        ...issues,
+    ];
+    if (fiatMeta === null || fiatMeta === void 0 ? void 0 : fiatMeta.lastSuccessAt) {
+        logs.push({
+            source: "exchangeratesapi",
+            reason: "fiat_rates_updated",
+            at: formatLogAt(fiatMeta.lastSuccessAt),
+        });
+    }
+    if (cryptoMeta === null || cryptoMeta === void 0 ? void 0 : cryptoMeta.lastSuccessAt) {
+        logs.push({
+            source: "coingecko",
+            reason: "crypto_rates_updated",
+            at: formatLogAt(cryptoMeta.lastSuccessAt),
         });
     }
     return Object.assign({ currentRate,
         giveToUSD,
         getToUSD,
         dayTrend,
-        hourTrend }, (issues.length ? { issue: issues } : {}));
+        hourTrend }, (logs.length ? { logs } : {}));
 };
 server.get("/", (req, reply) => __awaiter(void 0, void 0, void 0, function* () {
     const ip = getClientIp(req);
@@ -240,8 +263,11 @@ const start = () => __awaiter(void 0, void 0, void 0, function* () {
         if (cities)
             db_1.default.push(".cities", cities);
         (0, getLocation_1.getLocation)("");
-        yield (0, fiat_1.default)();
-        yield (0, crypto_1.default)();
+        const isBuiltRuntime = __dirname.includes(`${path_1.default.sep}build`);
+        if (isBuiltRuntime) {
+            yield (0, fiat_1.default)();
+            yield (0, crypto_1.default)();
+        }
         setTimeout(fiat_1.default, 5000);
         setTimeout(crypto_1.default, 6000);
         setInterval(crypto_1.default, 1000 * 60 * 30); // every 30min

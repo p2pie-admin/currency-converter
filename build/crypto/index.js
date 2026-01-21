@@ -12,17 +12,18 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const axios_1 = __importDefault(require("axios"));
 const db_1 = __importDefault(require("../db"));
-const coingecko_api_1 = __importDefault(require("coingecko-api"));
 const helpers_1 = require("./helpers");
-const CoinGeckoClient = new coingecko_api_1.default();
 exports.default = () => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c;
     const allExist = db_1.default.exists(".crypto") && db_1.default.exists(".fiat_to_euro");
     if (!allExist)
         return;
     const crypto = db_1.default.getData(".crypto");
     const fiatToEuro = db_1.default.getData(".fiat_to_euro");
     const ids = Object.keys(crypto).join(",");
+    const idList = Object.keys(crypto);
     if (!Object.keys(crypto).length || !Object.keys(fiatToEuro).length)
         return;
     const now = Date.now();
@@ -37,14 +38,47 @@ exports.default = () => __awaiter(void 0, void 0, void 0, function* () {
     }
     db_1.default.push(cryptoMetaPath, Object.assign(Object.assign({}, cryptoMeta), { lastRequestAt: now }));
     try {
-        let { data } = yield CoinGeckoClient.simple.price({
-            ids,
-            vs_currencies: "eur",
-        });
-        if (data) {
+        const chunkSize = 200;
+        const chunks = [];
+        for (let i = 0; i < idList.length; i += chunkSize) {
+            chunks.push(idList.slice(i, i + chunkSize));
+        }
+        const combinedData = {};
+        const errors = [];
+        const baseUrl = process.env.COINGECKO_BASE_URL || "https://api.coingecko.com/api/v3";
+        for (const chunk of chunks) {
+            try {
+                const response = yield axios_1.default.get(`${baseUrl}/simple/price`, {
+                    params: {
+                        ids: chunk.join(","),
+                        vs_currencies: "eur",
+                    },
+                    headers: {
+                        "User-Agent": "p2pie-converter/1.0",
+                        Accept: "application/json",
+                    },
+                    timeout: 10000,
+                });
+                if ((response === null || response === void 0 ? void 0 : response.data) && typeof response.data === "object") {
+                    Object.assign(combinedData, response.data);
+                }
+                else {
+                    errors.push("Unexpected CoinGecko response body");
+                }
+            }
+            catch (error) {
+                const status = (_a = error === null || error === void 0 ? void 0 : error.response) === null || _a === void 0 ? void 0 : _a.status;
+                const message = ((_c = (_b = error === null || error === void 0 ? void 0 : error.response) === null || _b === void 0 ? void 0 : _b.data) === null || _c === void 0 ? void 0 : _c.error) || (error === null || error === void 0 ? void 0 : error.message);
+                errors.push(status ? `status ${status}: ${message}` : String(message || error));
+            }
+            if (chunks.length > 1) {
+                yield new Promise((resolve) => setTimeout(resolve, 400));
+            }
+        }
+        if (Object.keys(combinedData).length) {
             const cryptoToEuroRaw = Object.entries(crypto).reduce((res, [id, code]) => {
                 var _a;
-                const rate = (_a = data[id]) === null || _a === void 0 ? void 0 : _a.eur;
+                const rate = (_a = combinedData[id]) === null || _a === void 0 ? void 0 : _a.eur;
                 if ((0, helpers_1.isValidRate)(rate)) {
                     res[code] = rate;
                 }
@@ -52,13 +86,29 @@ exports.default = () => __awaiter(void 0, void 0, void 0, function* () {
             }, {});
             const sanitizedFiatToEuro = (0, helpers_1.filterValidRates)(fiatToEuro);
             const cryptoToEuro = (0, helpers_1.filterValidRates)(cryptoToEuroRaw);
-            const missingCrypto = Object.keys(crypto).filter((id) => { var _a; return !(0, helpers_1.isValidRate)((_a = data[id]) === null || _a === void 0 ? void 0 : _a.eur); });
-            const warning = missingCrypto.length > 0
-                ? `Partial CoinGecko rates (missing: ${missingCrypto.length})`
+            const missingCrypto = Object.keys(crypto).filter((id) => { var _a; return !(0, helpers_1.isValidRate)((_a = combinedData[id]) === null || _a === void 0 ? void 0 : _a.eur); });
+            const warningParts = [];
+            if (missingCrypto.length > 0) {
+                const missingCodes = missingCrypto
+                    .map((id) => crypto[id])
+                    .filter(Boolean)
+                    .map((code) => code.toUpperCase());
+                const missingLabel = missingCodes.length > 20
+                    ? `${missingCodes.slice(0, 20).join(", ")} (+${missingCodes.length - 20} more)`
+                    : missingCodes.join(", ");
+                warningParts.push(`missing: ${missingCrypto.length}${missingLabel ? ` (${missingLabel})` : ""}`);
+            }
+            if (errors.length) {
+                warningParts.push(`errors: ${errors.length}`);
+            }
+            const warning = warningParts.length
+                ? `Partial CoinGecko rates (${warningParts.join(", ")})`
                 : null;
             if (!Object.keys(cryptoToEuro).length || !Object.keys(sanitizedFiatToEuro).length) {
                 db_1.default.push(cryptoMetaPath, Object.assign(Object.assign({}, cryptoMeta), { lastRequestAt: now, lastError: {
-                        message: "Invalid rates from CoinGecko",
+                        message: errors.length
+                            ? `Invalid rates from CoinGecko: ${errors.join("; ")}`
+                            : "Invalid rates from CoinGecko",
                         at: now,
                     } }));
                 return;
@@ -91,7 +141,12 @@ exports.default = () => __awaiter(void 0, void 0, void 0, function* () {
             db_1.default.save();
         }
         else {
-            db_1.default.push(cryptoMetaPath, Object.assign(Object.assign({}, cryptoMeta), { lastRequestAt: now, lastError: { message: "Empty CoinGecko response", at: now } }));
+            db_1.default.push(cryptoMetaPath, Object.assign(Object.assign({}, cryptoMeta), { lastRequestAt: now, lastError: {
+                    message: errors.length
+                        ? `Empty CoinGecko response: ${errors.join("; ")}`
+                        : "Empty CoinGecko response",
+                    at: now,
+                } }));
         }
     }
     catch (err) {

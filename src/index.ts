@@ -1,6 +1,7 @@
 import Fastify, { FastifyRequest } from "fastify";
 import dotenv from "dotenv";
 import axios from "axios";
+import path from "path";
 import updateCryptoRates from "./crypto";
 import updateFiatRates from "./fiat";
 
@@ -70,6 +71,11 @@ const getClientIp = (req: FastifyRequest): string | null => {
   return normalizeIp(rawIp);
 };
 
+const formatLogAt = (value?: number | null) => {
+  if (!value || !Number.isFinite(value)) return undefined;
+  return new Date(value).toISOString().split("T")[0];
+};
+
 const getPairRateInfo = (
   dirRequested: string,
   existingDayRates?: number[] | null
@@ -123,7 +129,7 @@ const getPairRateInfo = (
     lastRateTimestamp = null;
   }
 
-  const issues: Array<{ source: string; reason: string; at?: number }> = [];
+  const issues: Array<{ source: string; reason: string; at?: string }> = [];
   if (!currentRate || !Number.isFinite(currentRate)) {
     issues.push({ source: "rates", reason: "invalid_current_rate" });
   } else if (currentRate !== dayRates[dayRates.length - 1]) {
@@ -135,7 +141,7 @@ const getPairRateInfo = (
     issues.push({
       source: "rates",
       reason: "stale_rate",
-      at: lastRateTimestamp,
+      at: formatLogAt(lastRateTimestamp),
     });
   }
 
@@ -151,19 +157,19 @@ const getPairRateInfo = (
     issues.push({
       source: "exchangeratesapi",
       reason: fiatMeta.lastError.message || "fiat_rates_error",
-      at: fiatMeta.lastError.at,
+      at: formatLogAt(fiatMeta.lastError.at),
     });
   } else if (fiatMeta?.lastWarning) {
     issues.push({
       source: "exchangeratesapi",
       reason: fiatMeta.lastWarning.message || "fiat_rates_warning",
-      at: fiatMeta.lastWarning.at,
+      at: formatLogAt(fiatMeta.lastWarning.at),
     });
   } else if (fiatMeta?.lastSuccessAt && now - fiatMeta.lastSuccessAt > 36 * 60 * 60 * 1000) {
     issues.push({
       source: "exchangeratesapi",
       reason: "fiat_rates_stale",
-      at: fiatMeta.lastSuccessAt,
+      at: formatLogAt(fiatMeta.lastSuccessAt),
     });
   }
 
@@ -175,19 +181,39 @@ const getPairRateInfo = (
     issues.push({
       source: "coingecko",
       reason: cryptoMeta.lastError.message || "crypto_rates_error",
-      at: cryptoMeta.lastError.at,
+      at: formatLogAt(cryptoMeta.lastError.at),
     });
   } else if (cryptoMeta?.lastWarning) {
     issues.push({
       source: "coingecko",
       reason: cryptoMeta.lastWarning.message || "crypto_rates_warning",
-      at: cryptoMeta.lastWarning.at,
+      at: formatLogAt(cryptoMeta.lastWarning.at),
     });
   } else if (cryptoMeta?.lastSuccessAt && now - cryptoMeta.lastSuccessAt > 2 * 60 * 60 * 1000) {
     issues.push({
       source: "coingecko",
       reason: "crypto_rates_stale",
-      at: cryptoMeta.lastSuccessAt,
+      at: formatLogAt(cryptoMeta.lastSuccessAt),
+    });
+  }
+
+  const logs: Array<{ source: string; reason: string; at?: string }> = [
+    ...issues,
+  ];
+
+  if (fiatMeta?.lastSuccessAt) {
+    logs.push({
+      source: "exchangeratesapi",
+      reason: "fiat_rates_updated",
+      at: formatLogAt(fiatMeta.lastSuccessAt),
+    });
+  }
+
+  if (cryptoMeta?.lastSuccessAt) {
+    logs.push({
+      source: "coingecko",
+      reason: "crypto_rates_updated",
+      at: formatLogAt(cryptoMeta.lastSuccessAt),
     });
   }
 
@@ -197,7 +223,7 @@ const getPairRateInfo = (
     getToUSD,
     dayTrend,
     hourTrend,
-    ...(issues.length ? { issue: issues } : {}),
+    ...(logs.length ? { logs } : {}),
   };
 };
 
@@ -268,8 +294,13 @@ const start = async () => {
       ?.cities as ICity[];
     if (cities) db.push(".cities", cities);
     getLocation("");
-    await updateFiatRates();
-    await updateCryptoRates();
+    const isBuiltRuntime = __dirname.includes(`${path.sep}build`);
+    if (isBuiltRuntime) {
+      console.log("Forced rate update on build startup");
+      await updateFiatRates();
+      await updateCryptoRates();
+      console.log("Forced rate update completed");
+    }
     setTimeout(updateFiatRates, 5_000);
     setTimeout(updateCryptoRates, 6_000);
     setInterval(updateCryptoRates, 1_000 * 60 * 30); // every 30min
