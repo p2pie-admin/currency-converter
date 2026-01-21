@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mergeRates = exports.matchRates = exports.roundAmount = void 0;
+exports.mergeRates = exports.matchRates = exports.filterValidRates = exports.isValidRate = exports.roundAmount = void 0;
 const roundAmount = (amount, rude = false) => {
     // в логарифм нули не вставляем
     const factor = rude ? 1 : 3;
@@ -21,16 +21,32 @@ const roundAmount = (amount, rude = false) => {
     return +amount.toFixed(orderOfMagnitude < 0 ? 0 : orderOfMagnitude);
 };
 exports.roundAmount = roundAmount;
-const matchRates = (aToEuro, bToEuro) => Object.entries(aToEuro).reduce((rates, [aCode, aToEuro]) => {
-    const fiatRatesForOneCrypto = Object.entries(bToEuro).reduce((dirs, [bCode, bToEuro]) => {
-        const dirKey1 = `${aCode.toUpperCase()}_${bCode.toUpperCase()}`;
-        const dirKey2 = `${bCode.toUpperCase()}_${aCode.toUpperCase()}`;
-        const dirValue1 = (0, exports.roundAmount)(bToEuro / aToEuro);
-        const dirValue2 = (0, exports.roundAmount)(aToEuro / bToEuro);
-        return Object.assign(Object.assign({}, dirs), { [dirKey1]: dirValue1, [dirKey2]: dirValue2 });
-    }, {});
-    return Object.assign(Object.assign({}, rates), fiatRatesForOneCrypto);
+const isValidRate = (value) => typeof value === "number" && Number.isFinite(value) && value > 0;
+exports.isValidRate = isValidRate;
+const filterValidRates = (rates) => Object.entries(rates).reduce((res, [code, rate]) => {
+    if ((0, exports.isValidRate)(rate)) {
+        res[code] = rate;
+    }
+    return res;
 }, {});
+exports.filterValidRates = filterValidRates;
+const matchRates = (aToEuro, bToEuro) => {
+    const aEntries = Object.entries(aToEuro).filter(([, rate]) => (0, exports.isValidRate)(rate));
+    const bEntries = Object.entries(bToEuro).filter(([, rate]) => (0, exports.isValidRate)(rate));
+    return aEntries.reduce((rates, [aCode, aRate]) => {
+        const fiatRatesForOneCrypto = bEntries.reduce((dirs, [bCode, bRate]) => {
+            const dirKey1 = `${aCode.toUpperCase()}_${bCode.toUpperCase()}`;
+            const dirKey2 = `${bCode.toUpperCase()}_${aCode.toUpperCase()}`;
+            const dirValue1 = (0, exports.roundAmount)(bRate / aRate);
+            const dirValue2 = (0, exports.roundAmount)(aRate / bRate);
+            if ((0, exports.isValidRate)(dirValue1) && (0, exports.isValidRate)(dirValue2)) {
+                return Object.assign(Object.assign({}, dirs), { [dirKey1]: dirValue1, [dirKey2]: dirValue2 });
+            }
+            return dirs;
+        }, {});
+        return Object.assign(Object.assign({}, rates), fiatRatesForOneCrypto);
+    }, {});
+};
 exports.matchRates = matchRates;
 // obj1 = {a: [1,4], b: []};
 // obj2 = {a: 7, b: 3}

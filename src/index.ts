@@ -74,6 +74,7 @@ const getPairRateInfo = (
   dirRequested: string,
   existingDayRates?: number[] | null
 ) => {
+  const now = Date.now();
   let dayRates = existingDayRates;
   if (!dayRates) {
     try {
@@ -88,7 +89,10 @@ const getPairRateInfo = (
   }
 
   const [give, get] = dirRequested.split("_");
-  const currentRate = dayRates[dayRates.length - 1];
+  const lastKnownRate =
+    [...dayRates].reverse().find((rate) => Number.isFinite(rate) && rate > 0) ??
+    null;
+  const currentRate = lastKnownRate ?? dayRates[dayRates.length - 1];
 
   let giveToUSD: number | null = null;
   let getToUSD: number | null = null;
@@ -100,11 +104,101 @@ const getPairRateInfo = (
     getToUSD = db.getData(`.rates.${get}_USD`)?.[0] ?? null;
   } catch {}
 
-  const dayTrend = ((currentRate - dayRates[0]) / currentRate) * 100;
+  const dayTrend =
+    dayRates.length >= 2 && currentRate > 0
+      ? ((currentRate - dayRates[0]) / currentRate) * 100
+      : null;
   const hourTrend =
-    ((currentRate - dayRates[dayRates.length - 6]) / currentRate) * 100;
+    dayRates.length >= 6 && currentRate > 0
+      ? ((currentRate - dayRates[dayRates.length - 6]) / currentRate) * 100
+      : null;
 
-  return { currentRate, giveToUSD, getToUSD, dayTrend, hourTrend };
+  let lastRateTimestamp: number | null = null;
+  try {
+    const timestamps = db.getData(
+      `.rates_ts.${dirRequested}`
+    ) as number[];
+    lastRateTimestamp = timestamps?.[timestamps.length - 1] ?? null;
+  } catch {
+    lastRateTimestamp = null;
+  }
+
+  const issues: Array<{ source: string; reason: string; at?: number }> = [];
+  if (!currentRate || !Number.isFinite(currentRate)) {
+    issues.push({ source: "rates", reason: "invalid_current_rate" });
+  } else if (currentRate !== dayRates[dayRates.length - 1]) {
+    issues.push({ source: "rates", reason: "used_last_valid_rate" });
+  }
+  if (!lastRateTimestamp) {
+    issues.push({ source: "rates", reason: "missing_timestamp" });
+  } else if (now - lastRateTimestamp > 2 * 60 * 60 * 1000) {
+    issues.push({
+      source: "rates",
+      reason: "stale_rate",
+      at: lastRateTimestamp,
+    });
+  }
+
+  const meta = db.exists(".meta") ? (db.getData(".meta") as any) : {};
+  const fiatMeta = meta?.fiat;
+  const cryptoMeta = meta?.crypto;
+
+  if (
+    fiatMeta?.lastError &&
+    (!fiatMeta?.lastSuccessAt ||
+      fiatMeta.lastError.at >= fiatMeta.lastSuccessAt)
+  ) {
+    issues.push({
+      source: "exchangeratesapi",
+      reason: fiatMeta.lastError.message || "fiat_rates_error",
+      at: fiatMeta.lastError.at,
+    });
+  } else if (fiatMeta?.lastWarning) {
+    issues.push({
+      source: "exchangeratesapi",
+      reason: fiatMeta.lastWarning.message || "fiat_rates_warning",
+      at: fiatMeta.lastWarning.at,
+    });
+  } else if (fiatMeta?.lastSuccessAt && now - fiatMeta.lastSuccessAt > 36 * 60 * 60 * 1000) {
+    issues.push({
+      source: "exchangeratesapi",
+      reason: "fiat_rates_stale",
+      at: fiatMeta.lastSuccessAt,
+    });
+  }
+
+  if (
+    cryptoMeta?.lastError &&
+    (!cryptoMeta?.lastSuccessAt ||
+      cryptoMeta.lastError.at >= cryptoMeta.lastSuccessAt)
+  ) {
+    issues.push({
+      source: "coingecko",
+      reason: cryptoMeta.lastError.message || "crypto_rates_error",
+      at: cryptoMeta.lastError.at,
+    });
+  } else if (cryptoMeta?.lastWarning) {
+    issues.push({
+      source: "coingecko",
+      reason: cryptoMeta.lastWarning.message || "crypto_rates_warning",
+      at: cryptoMeta.lastWarning.at,
+    });
+  } else if (cryptoMeta?.lastSuccessAt && now - cryptoMeta.lastSuccessAt > 2 * 60 * 60 * 1000) {
+    issues.push({
+      source: "coingecko",
+      reason: "crypto_rates_stale",
+      at: cryptoMeta.lastSuccessAt,
+    });
+  }
+
+  return {
+    currentRate,
+    giveToUSD,
+    getToUSD,
+    dayTrend,
+    hourTrend,
+    ...(issues.length ? { issue: issues } : {}),
+  };
 };
 
 server.get("/", async (req: FastifyRequest, reply) => {
@@ -174,6 +268,8 @@ const start = async () => {
       ?.cities as ICity[];
     if (cities) db.push(".cities", cities);
     getLocation("");
+    await updateFiatRates();
+    await updateCryptoRates();
     setTimeout(updateFiatRates, 5_000);
     setTimeout(updateCryptoRates, 6_000);
     setInterval(updateCryptoRates, 1_000 * 60 * 30); // every 30min

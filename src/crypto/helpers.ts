@@ -22,23 +22,44 @@ export const roundAmount = (amount: number, rude = false): number => {
 
 type ICodesToRate = { [key: string]: number };
 
+export const isValidRate = (value?: number | null): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0;
+
+export const filterValidRates = (rates: ICodesToRate): ICodesToRate =>
+  Object.entries(rates).reduce((res, [code, rate]) => {
+    if (isValidRate(rate)) {
+      res[code] = rate;
+    }
+    return res;
+  }, {} as ICodesToRate);
+
 export const matchRates = (
   aToEuro: ICodesToRate,
   bToEuro: ICodesToRate
-): ICodesToRate =>
-  Object.entries(aToEuro).reduce((rates, [aCode, aToEuro]) => {
-    const fiatRatesForOneCrypto = Object.entries(bToEuro).reduce(
-      (dirs, [bCode, bToEuro]) => {
-        const dirKey1 = `${aCode.toUpperCase()}_${bCode.toUpperCase()}`;
-        const dirKey2 = `${bCode.toUpperCase()}_${aCode.toUpperCase()}`;
-        const dirValue1 = roundAmount(bToEuro / aToEuro);
-        const dirValue2 = roundAmount(aToEuro / bToEuro);
+): ICodesToRate => {
+  const aEntries = Object.entries(aToEuro).filter(([, rate]) =>
+    isValidRate(rate)
+  );
+  const bEntries = Object.entries(bToEuro).filter(([, rate]) =>
+    isValidRate(rate)
+  );
+
+  return aEntries.reduce((rates, [aCode, aRate]) => {
+    const fiatRatesForOneCrypto = bEntries.reduce((dirs, [bCode, bRate]) => {
+      const dirKey1 = `${aCode.toUpperCase()}_${bCode.toUpperCase()}`;
+      const dirKey2 = `${bCode.toUpperCase()}_${aCode.toUpperCase()}`;
+      const dirValue1 = roundAmount(bRate / aRate);
+      const dirValue2 = roundAmount(aRate / bRate);
+
+      if (isValidRate(dirValue1) && isValidRate(dirValue2)) {
         return { ...dirs, [dirKey1]: dirValue1, [dirKey2]: dirValue2 };
-      },
-      {}
-    );
+      }
+
+      return dirs;
+    }, {} as ICodesToRate);
     return { ...rates, ...fiatRatesForOneCrypto };
-  }, {});
+  }, {} as ICodesToRate);
+};
 
 // obj1 = {a: [1,4], b: []};
 // obj2 = {a: 7, b: 3}

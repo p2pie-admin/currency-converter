@@ -25,34 +25,77 @@ exports.default = () => __awaiter(void 0, void 0, void 0, function* () {
     const ids = Object.keys(crypto).join(",");
     if (!Object.keys(crypto).length || !Object.keys(fiatToEuro).length)
         return;
+    const now = Date.now();
+    const cryptoMetaPath = ".meta.crypto";
+    const cryptoMeta = db_1.default.exists(cryptoMetaPath)
+        ? db_1.default.getData(cryptoMetaPath)
+        : {};
+    const minIntervalMs = 10 * 60 * 1000;
+    if (cryptoMeta.lastRequestAt &&
+        now - cryptoMeta.lastRequestAt < minIntervalMs) {
+        return;
+    }
+    db_1.default.push(cryptoMetaPath, Object.assign(Object.assign({}, cryptoMeta), { lastRequestAt: now }));
     try {
         let { data } = yield CoinGeckoClient.simple.price({
             ids,
             vs_currencies: "eur",
         });
         if (data) {
-            const cryptoToEuro = Object.entries(crypto).reduce((res, [id, code]) => { var _a; return (Object.assign(Object.assign({}, res), { [code]: (_a = data[id]) === null || _a === void 0 ? void 0 : _a.eur })); }, {});
+            const cryptoToEuroRaw = Object.entries(crypto).reduce((res, [id, code]) => {
+                var _a;
+                const rate = (_a = data[id]) === null || _a === void 0 ? void 0 : _a.eur;
+                if ((0, helpers_1.isValidRate)(rate)) {
+                    res[code] = rate;
+                }
+                return res;
+            }, {});
+            const sanitizedFiatToEuro = (0, helpers_1.filterValidRates)(fiatToEuro);
+            const cryptoToEuro = (0, helpers_1.filterValidRates)(cryptoToEuroRaw);
+            const missingCrypto = Object.keys(crypto).filter((id) => { var _a; return !(0, helpers_1.isValidRate)((_a = data[id]) === null || _a === void 0 ? void 0 : _a.eur); });
+            const warning = missingCrypto.length > 0
+                ? `Partial CoinGecko rates (missing: ${missingCrypto.length})`
+                : null;
+            if (!Object.keys(cryptoToEuro).length || !Object.keys(sanitizedFiatToEuro).length) {
+                db_1.default.push(cryptoMetaPath, Object.assign(Object.assign({}, cryptoMeta), { lastRequestAt: now, lastError: {
+                        message: "Invalid rates from CoinGecko",
+                        at: now,
+                    } }));
+                return;
+            }
             // const cryptoToCryptoRates = Object.entries(cryptoCodesToEur).reduce((rates, [cryptoCode, cryptoToEuro]) => {
             //   return rates
             // } , {})
-            const cryptoToFiatRates = (0, helpers_1.matchRates)(cryptoToEuro, fiatToEuro);
+            const cryptoToFiatRates = (0, helpers_1.matchRates)(cryptoToEuro, sanitizedFiatToEuro);
             const cryptoToCryptoRates = (0, helpers_1.matchRates)(cryptoToEuro, cryptoToEuro);
-            const fiatToFiatRates = (0, helpers_1.matchRates)(fiatToEuro, fiatToEuro);
+            const fiatToFiatRates = (0, helpers_1.matchRates)(sanitizedFiatToEuro, sanitizedFiatToEuro);
             const newRates = Object.assign(Object.assign(Object.assign({}, cryptoToFiatRates), cryptoToCryptoRates), fiatToFiatRates);
+            const newRateTimestamps = Object.keys(newRates).reduce((res, key) => (Object.assign(Object.assign({}, res), { [key]: now })), {});
             if (!db_1.default.exists(".rates")) {
                 const initialRates = Object.entries(newRates).reduce((res, [key, rate]) => (Object.assign(Object.assign({}, res), { [key]: [rate] })), {});
+                const initialRateTimestamps = Object.entries(newRateTimestamps).reduce((res, [key, timestamp]) => (Object.assign(Object.assign({}, res), { [key]: [timestamp] })), {});
                 db_1.default.push(".rates", initialRates);
+                db_1.default.push(".rates_ts", initialRateTimestamps);
                 console.log("rates initiated");
+                db_1.default.push(cryptoMetaPath, Object.assign(Object.assign({}, cryptoMeta), { lastRequestAt: now, lastSuccessAt: now, lastError: null, lastWarning: warning ? { message: warning, at: now } : null }));
                 db_1.default.save();
                 return;
             }
             const oldRates = db_1.default.getData(".rates");
-            // console.log("oldRates", Object.keys(oldRates)?.length);
+            const oldRateTimestamps = db_1.default.exists(".rates_ts")
+                ? db_1.default.getData(".rates_ts")
+                : {};
             db_1.default.push(".rates", (0, helpers_1.mergeRates)(oldRates, newRates, 6 * 24));
+            db_1.default.push(".rates_ts", (0, helpers_1.mergeRates)(oldRateTimestamps, newRateTimestamps, 6 * 24));
+            db_1.default.push(cryptoMetaPath, Object.assign(Object.assign({}, cryptoMeta), { lastRequestAt: now, lastSuccessAt: now, lastError: null, lastWarning: warning ? { message: warning, at: now } : null }));
             db_1.default.save();
+        }
+        else {
+            db_1.default.push(cryptoMetaPath, Object.assign(Object.assign({}, cryptoMeta), { lastRequestAt: now, lastError: { message: "Empty CoinGecko response", at: now } }));
         }
     }
     catch (err) {
+        db_1.default.push(cryptoMetaPath, Object.assign(Object.assign({}, cryptoMeta), { lastRequestAt: now, lastError: { message: String(err), at: now } }));
         console.log(err);
     }
 });
