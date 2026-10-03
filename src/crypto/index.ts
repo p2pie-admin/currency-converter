@@ -12,6 +12,14 @@ export default async () => {
   if (!Object.keys(crypto).length || !Object.keys(fiatToEuro).length) return;
   const now = Date.now();
   const cryptoMetaPath = ".meta.crypto";
+  const hasMissingFiatUsdRates = Object.keys(fiatToEuro).some((code) => {
+    const normalizedCode = code.toUpperCase();
+    return (
+      normalizedCode !== "USD" &&
+      (!db.exists(`.rates.${normalizedCode}_USD`) ||
+        !db.exists(`.rates.USD_${normalizedCode}`))
+    );
+  });
   const cryptoMeta = db.exists(cryptoMetaPath)
     ? (db.getData(cryptoMetaPath) as {
         lastRequestAt?: number;
@@ -24,7 +32,8 @@ export default async () => {
 
   if (
     cryptoMeta.lastRequestAt &&
-    now - cryptoMeta.lastRequestAt < minIntervalMs
+    now - cryptoMeta.lastRequestAt < minIntervalMs &&
+    !hasMissingFiatUsdRates
   ) {
     return;
   }

@@ -20,6 +20,8 @@ export const initialDB = {
     "TRY", // Turkish Lira
     "INR", // Indian Rupee
     "RUB", // Russian Ruble
+    "KZT", // Kazakhstani Tenge
+    "KGS", // Kyrgyzstani Som
     "BRL", // Brazilian Real
     "ZAR", // South African Rand
     "THB", // Thai Baht

@@ -3,7 +3,15 @@ import db from "../db";
 import { reserved } from "./reserved";
 
 export default async () => {
-  const symbols = db.getData(".fiat");
+  const fiatSymbols = db.getData(".fiat") as string[];
+  const reservedSymbols = Object.keys(reserved);
+  const missingReservedSymbols = reservedSymbols.filter(
+    (symbol) => !fiatSymbols.includes(symbol)
+  );
+  const symbols = Array.from(new Set([...fiatSymbols, ...reservedSymbols]));
+  if (missingReservedSymbols.length) {
+    db.push(".fiat", symbols);
+  }
   const url = `${process.env.EXCHANGERATESAPI_URL}&symbols=${symbols}`;
 
   const now = Date.now();
@@ -21,6 +29,19 @@ export default async () => {
   const todayKey = new Date(now).toISOString().slice(0, 10);
   const requestCount = fiatMeta.day === todayKey ? fiatMeta.count ?? 0 : 0;
   if (requestCount >= 3) {
+    if (missingReservedSymbols.length) {
+      const fiatToEuro = db.exists(".fiat_to_euro")
+        ? (db.getData(".fiat_to_euro") as { [key: string]: number })
+        : {};
+      db.push(".fiat_to_euro", {
+        ...fiatToEuro,
+        ...missingReservedSymbols.reduce(
+          (rates, symbol) => ({ ...rates, [symbol]: reserved[symbol] }),
+          {} as { [key: string]: number }
+        ),
+      });
+      db.save();
+    }
     return;
   }
 
