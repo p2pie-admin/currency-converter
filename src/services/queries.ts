@@ -1,13 +1,9 @@
 import { gql } from "graphql-request";
 
 export const AuthMutation = gql`
-  mutation login {
+  mutation login($identifier: String!, $password: String!) {
     login(
-      input: {
-        identifier: "currency-converter"
-        password: "x#@TH4L-#UJ#vq2"
-        provider: "local"
-      }
+      input: { identifier: $identifier, password: $password, provider: "local" }
     ) {
       jwt
       user {

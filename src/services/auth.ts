@@ -5,7 +5,11 @@ import { AuthMutation } from "./queries";
 async function auth() {
   db.push(".jwt", undefined);
   console.log("Authorizing ...");
-  const data = await callStrapi(AuthMutation);
+  // Credentials come from the environment (/root/.env), never from source.
+  const data = await callStrapi(AuthMutation, {
+    identifier: process.env.CONVERTER_STRAPI_IDENTIFIER || "currency-converter",
+    password: process.env.CONVERTER_STRAPI_PASSWORD || "",
+  });
   const jwt = data?.login?.jwt;
   if (jwt) {
     console.log("📗 \u001b[1;32m Authorized successfully!");
